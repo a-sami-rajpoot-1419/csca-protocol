@@ -46,7 +46,7 @@ CSCA does not alter consensus rules, finality mechanisms, execution models, or e
 
 A blockchain validator today faces a storage problem with no upper bound. Every block finalized by the network adds permanently to the storage burden of every consensus participant. There is no protocol-level mechanism that says: you have stored enough history, you are permitted to stop. The result is a slow but compounding pressure on validator economics, hardware requirements, and ultimately decentralization.
 
-The problem is not theoretical. Ethereum's archive nodes currently exceed 14 terabytes and grow by approximately 1.5 terabytes per year [1]. A validator joining the Ethereum network today faces a synchronization window measured in days even with optimized state sync. As throughput increases and chains mature, both figures worsen.
+The problem is not theoretical. Ethereum archive nodes are already multi-terabyte systems and continue to grow rapidly [1][2]. A validator joining the Ethereum network today faces a synchronization window measured in days even with optimized state sync. As throughput increases and chains mature, both figures worsen.
 
 Three partial solutions exist today, none of which fully addresses the problem:
 
@@ -86,7 +86,7 @@ As throughput scales, `block_body_size` per unit time increases. As adoption gro
 
 **Observed growth rates (Ethereum mainnet):**
 
-| Component | Current Size | Annual Growth |
+| Component | Approx. Current Size | Approx. Annual Growth |
 |---|---|---|
 | Archive node (full) | ~14 TB | ~1.5 TB/year |
 | Full node (with pruning) | ~1.1 TB | ~300 GB/year |
@@ -94,6 +94,8 @@ As throughput scales, `block_body_size` per unit time increases. As adoption gro
 | Block headers only | ~60 GB | ~5 GB/year |
 
 *Sources: Etherscan, Ethereum Foundation research, EIP-4444 discussion [1][2]*
+
+These figures are representative observations at the time of writing; exact values vary by client, configuration, and measurement date.
 
 The gap between archive and full node size reflects the dominant cost: full block bodies accumulated across chain history. This is the primary target of CSCA.
 
@@ -420,45 +422,18 @@ Combined, these two layers prove that a specific transaction occurred in a speci
 
 Archive validators store full block bodies and construct these proofs on request. The proof is verifiable by anyone with only the checkpoint.
 
-### 5.8 State Snapshot Requirement
+### 5.8 State Snapshot for Bootstrap Verification
 
 Validators maintain one current world state that mutates with every block. At the moment a checkpoint is proposed over window `[start_block, end_block]`:
 
 - The chain has advanced beyond `end_block`
 - The world state no longer reflects the state at `end_block`
-- Challenge Type 2 (state root dispute) requires access to the state at `end_block`
 
-To support state root challenges during the challenge window, each validator **must take and retain a state snapshot at `end_block`** when a checkpoint is proposed over that boundary. This snapshot is:
+Type 2 is a direct comparison between `checkpoint.state_root` and `header[end_block].state_root` and does not require any snapshot.
 
-- Taken at checkpoint proposal time
-- Retained until the challenge window closes
-- Discarded immediately after window closure, before pruning begins
+The snapshot is instead used for bootstrap verification. A new validator downloads a point-in-time state snapshot corresponding to a finalized checkpoint and verifies that the snapshot's `state_root` matches the checkpoint's `state_root` before importing it. This is cryptographically verifiable checkpoint synchronization after a valid bootstrap point.
 
-```
-Timeline:
-
-block[end_block] finalized
-        │
-        ▼
-checkpoint proposed
-        │
-        ├──▶ validator takes state snapshot at end_block
-        │
-        ▼
-challenge window opens (duration: protocol parameter T_challenge)
-        │
-        │    any validator can challenge using snapshot
-        │
-        ▼
-challenge window closes
-        │
-        ├──▶ snapshot discarded
-        ├──▶ checkpoint finalized
-        ▼
-pruning permitted for blocks [start_block, end_block)
-```
-
-**Snapshot cost:** one full world state snapshot, retained for duration `T_challenge`. This is a temporary, bounded cost that does not accumulate. The snapshot is discarded after each window closes.
+Bootstrap snapshots may be served by archive validators or other distribution sources. The protocol requires only that the snapshot be independently verifiable against a finalized checkpoint; it does not require every validator to retain a live snapshot during the challenge window.
 
 ---
 
@@ -476,7 +451,6 @@ Consensus validators are the standard participants in block production and state
 
 **Retained temporarily:**
 - Full block bodies for current unfinalized window
-- State snapshot at checkpoint boundary (during challenge window only)
 
 **Pruned after checkpoint finalization:**
 - Full block bodies for finalized windows
@@ -521,8 +495,8 @@ Archive validators retain complete chain history and serve as the accountable cu
 At each checkpoint interval, a committee of `m` archive validators is randomly selected using verifiable randomness derived from the chain (e.g., RANDAO, VRF). The committee:
 
 ```
-Committee size m:     protocol parameter (e.g. 10–50 validators)
-Signature threshold k: protocol parameter (e.g. ⌈2m/3⌉ — two thirds majority)
+Committee size m:     protocol parameter (illustrative example: 10–50 validators)
+Signature threshold k: protocol parameter (illustrative example: ⌈2m/3⌉ — two thirds majority)
 Selection:            VRF-based random selection from registered archive set
 Term:                 one checkpoint window
 ```
@@ -571,7 +545,6 @@ Phase 3 — Checkpoint Computation
 Phase 4 — Checkpoint Proposal
 ──────────────────────────────
   Signed checkpoint broadcast to network
-  All validators take state snapshot at block[W-1]
   Challenge window opens (duration T_challenge)
 
                                                 │
@@ -582,7 +555,6 @@ Phase 4 — Checkpoint Proposal
 Phase 5 — Checkpoint Finalization
 ──────────────────────────────────
   Checkpoint accepted as final
-  State snapshots discarded by all validators
   Network signals: safe to prune blocks[0..W-1] bodies
 
                                                 │
@@ -876,6 +848,27 @@ CSCA delivers **dramatically reduced and more predictable storage growth for con
 
 > Block body storage — the dominant and fastest-growing component of validator storage — transitions from unbounded historical accumulation to a bounded working window that can be sized as a protocol parameter. Header and state growth remain but are orders of magnitude smaller and more predictable than body accumulation.
 
+### 10.5 Parameterization Strategy
+
+CSCA distinguishes between protocol structure and protocol tuning.
+
+**Fixed by architecture:**
+- checkpoint fields and hash structure
+- five verification checks
+- challenge type definitions
+
+**Governance-set:**
+- `B_target` (storage budget for the working window)
+- `N_archive_min` (minimum archive validator count)
+- `T_challenge` (challenge window duration)
+
+**Illustrative only, requiring empirical calibration:**
+- committee size `m` (this paper uses 10–50 as an example range)
+- signature threshold `k` (this paper uses `⌈2m/3⌉` as a standard quorum example)
+- reward and slash magnitudes (`R_committee`, `R_challenge`, `S_committee`)
+
+All illustrative values in this paper are examples used to explain the framework, not final protocol commitments.
+
 ---
 
 ## 11. Economic Model
@@ -1036,10 +1029,10 @@ Mitigation: Challenge requires only one honest validator
 ### 13.3 Safety and Liveness Properties
 
 **Safety:**
-CSCA pruning only occurs after checkpoint finalization. Checkpoint finalization requires committee quorum and an unchallenged window. A checkpoint cannot be finalized if it misrepresents finalized history, provided at least one honest participant monitors the window and challenge economics are correctly calibrated.
+CSCA pruning only occurs after checkpoint finalization. Checkpoint finalization requires committee quorum and an unchallenged window. Safety holds while fewer than `k` of `m` committee members are dishonest. At least one honest participant must monitor each window for the fraud-proof mechanism to work as designed. A checkpoint cannot be finalized if it misrepresents finalized history, provided the challenge economics are correctly calibrated.
 
 **Liveness:**
-CSCA checkpointing is a background protocol process. If the committee fails to reach quorum or a valid challenge is submitted, the window is re-attempted. Consensus participation is not blocked by checkpoint failure — pruning is simply delayed until the next successful checkpoint.
+CSCA checkpointing is a background protocol process. If the committee fails to reach quorum or a valid challenge is submitted, the window is re-attempted with a newly selected committee. Consensus participation is not blocked by checkpoint failure — pruning is simply delayed until the next successful checkpoint.
 
 ---
 
@@ -1055,7 +1048,7 @@ Block headers grow linearly with chain length. At Ethereum throughput (~5 GB/yea
 
 ### 14.3 Challenge Window Duration Is Implementation-Specific
 
-`T_challenge` must be long enough for participants to run full verification but short enough that state snapshots remain practical. The correct value depends on validator hardware capabilities, network throughput, and checkpoint window size. Empirical testing on a live network is required to calibrate this parameter.
+`T_challenge` must be long enough for participants to run full verification but short enough that challenge processing remains practical. The correct value depends on validator hardware capabilities, network throughput, and checkpoint window size. Empirical testing on a live network is required to calibrate this parameter.
 
 ### 14.4 Archive Incentive Parameterization Requires Empirical Data
 
@@ -1081,7 +1074,7 @@ The three concrete improvements CSCA delivers:
 
 **Universal verifiable pruning.** Every consensus validator can safely prune finalized block bodies, gated by a cryptographic checkpoint commitment and committee consensus. Pruning transitions from an informal local optimization to a formal protocol operation.
 
-**Trustless synchronization.** New validators verify their snapshot against a cryptographic checkpoint chain rather than trusting a snapshot source. The verification requires only standard hash operations against data that cannot be falsified without detection.
+**Cryptographically verifiable checkpoint synchronization.** New validators verify their snapshot against a cryptographic checkpoint chain rather than trusting the snapshot as a whole. The verification requires only standard hash operations against data that cannot be falsified without detection once a valid bootstrap point is obtained.
 
 **Accountable archival.** Archive validators hold a formal protocol role with defined responsibilities, economic rewards proportional to their costs, and slashing conditions that make failure irrational. Historical data availability becomes a protocol-enforced property rather than an operational volunteer effort.
 
@@ -1119,7 +1112,7 @@ The path forward is a reference implementation on a testable chain fork, empiric
 
 ## Appendix A — Simulation
 
-A working Python simulation demonstrating the core cryptographic mechanics of CSCA is available in the repository at `/simulation/csca_simulation.py`.
+A working toy-scale Python simulation demonstrating the core cryptographic mechanics of CSCA is available in the repository at `csca-simulation.py` in the repository root.
 
 The simulation demonstrates:
 - Block production and header chaining
