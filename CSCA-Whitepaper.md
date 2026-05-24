@@ -3,7 +3,7 @@
 
 ---
 
-**Author:** [Your Name]  
+**Author:** Abdul Sami
 **Version:** 1.0  
 **Date:** May 2026  
 **Status:** Research Proposal  
@@ -179,32 +179,12 @@ CSCA's contribution is synthesis: unifying these independently explored directio
 
 CSCA introduces one new protocol primitive — the **finalized checkpoint** — and two formal participant roles — **consensus validators** and **archive validators** — built on top of an unchanged consensus layer.
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                     EXISTING CONSENSUS LAYER                │
-│         (unchanged — finality, block production, execution) │
-└─────────────────────────────────┬───────────────────────────┘
-                                  │ finalized blocks
-                                  ▼
-┌─────────────────────────────────────────────────────────────┐
-│                       CSCA LAYER                            │
-│                                                             │
-│  ┌─────────────────┐         ┌──────────────────────────┐  │
-│  │ ARCHIVE          │         │ CONSENSUS VALIDATORS     │  │
-│  │ VALIDATORS       │────────▶│                          │  │
-│  │                  │ signed  │  keep: headers           │  │
-│  │  full history    │ checkpt │  keep: checkpoints       │  │
-│  │  committee role  │         │  keep: current state     │  │
-│  │  serve proofs    │         │  keep: recent blocks     │  │
-│  │  receive rewards │         │  prune: old block bodies │  │
-│  └─────────────────┘         └──────────────────────────┘  │
-│                                                             │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │              CHECKPOINT CHAIN                        │   │
-│  │  [CP_0] ──▶ [CP_1] ──▶ [CP_2] ──▶ ... ──▶ [CP_N]  │   │
-│  └─────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────┘
-```
+**High-level flow**
+
+- The existing consensus layer continues to finalize blocks exactly as before.
+- Archive validators collect finalized headers, compute checkpoints, and serve historical proofs.
+- Consensus validators retain headers, checkpoints, and current state while pruning finalized block bodies.
+- Checkpoints form a linear chain from genesis to the present.
 
 ### 4.2 Separation of Responsibilities
 
@@ -225,17 +205,17 @@ Checkpoints form an unbroken cryptographic chain from genesis to present, mirror
 
 ```
 Genesis
-   │
-   ▼
-Checkpoint_1 ──▶ covers blocks [0, W)
-   │              commits to: merkle_root, state_root
-   │              signed by: archive committee
-   ▼
-Checkpoint_2 ──▶ covers blocks [W, 2W)
-   │              previous_checkpoint_hash = Hash(Checkpoint_1)
-   ▼
-Checkpoint_N ──▶ covers blocks [(N-1)W, NW)
-                  previous_checkpoint_hash = Hash(Checkpoint_N-1)
+  |
+  v
+Checkpoint_1 -> covers blocks [0, W)
+  |              commits to: merkle_root, state_root
+  |              signed by: archive committee
+  v
+Checkpoint_2 -> covers blocks [W, 2W)
+  |              previous_checkpoint_hash = Hash(Checkpoint_1)
+  v
+Checkpoint_N -> covers blocks [(N-1)W, NW)
+            previous_checkpoint_hash = Hash(Checkpoint_N-1)
 ```
 
 Each checkpoint is independently verifiable against the previous checkpoint and the block headers for its window. No full history is required for this verification.
@@ -410,9 +390,9 @@ Layer 2 — Block in checkpoint
 ```
 
 Combined, these two layers prove that a specific transaction occurred in a specific finalized block covered by a finalized checkpoint — using only the checkpoint and proof paths, without the full block body.
+A dishonest proof is self-evidencing — Merkle verification against the checkpoint will fail, making fraud detectable without trusting the proof source.
 
 Archive validators store full block bodies and construct these proofs on request. The proof is verifiable by anyone with only the checkpoint.
-A dishonest proof is self-evidencing — Merkle verification against the checkpoint will fail, making fraud detectable without trusting the proof source.
 
 ### 5.8 State Snapshot for Bootstrap Verification
 
@@ -533,17 +513,20 @@ Phase 3 — Checkpoint Computation
                                                 │
                                        k signatures collected
                                                 │
+                        ┌───────────────────────┴───────────────────────┐
+                        │                                               │
+                        │ timeout without quorum                        │
+                        │ checkpoint not proposed                      │
+                        │ window re-attempted                          │
+                        │ new committee selected                       │
+                        │ return to Phase 2                            │
+                        └───────────────────────────────────────────────┘
+                                                │ quorum reached
                                                 ▼
 Phase 4 — Checkpoint Proposal
 ──────────────────────────────
   Signed checkpoint broadcast to network
   Challenge window opens (duration T_challenge)
-
-                                                │
-                                                │ timeout without quorum
-                                                ▼
-                                  window re-attempted
-                                  new committee selected
 
                                                 │
                                     T_challenge elapses
@@ -768,7 +751,7 @@ CSCA treats finalized block headers and their state roots as authoritative. It d
 | Assumption | New to CSCA | Mitigation |
 |---|---|---|
 | Consensus finality is correct | No (existing) | Unchanged from base protocol |
-| Archive committee is honest (k-of-m) | Yes | VRF selection, slashing, challenge window |
+| Archive committee is honest (`k-of-m`) | Yes | VRF selection, slashing, challenge window |
 | Challenge economics are correctly calibrated | Yes | Parameterization, governance |
 | Archive set remains available and distributed | Yes | Minimum size requirement, incentives, DA integration |
 
