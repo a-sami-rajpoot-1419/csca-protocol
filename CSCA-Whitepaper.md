@@ -84,6 +84,8 @@ Total validator storage ≈ Σ(block_body_size) + state_size + Σ(header_size)
 
 As throughput scales, `block_body_size` per unit time increases. As adoption grows, `state_size` increases. The formula has no natural bound.
 
+The dominant term in this formula is the accumulated block body component — transactions, receipts, and logs — which grows with every block and is never reclaimed under the current model.
+
 Archive nodes and pruning-enabled full nodes differ by a large and persistent margin. The gap reflects the dominant cost: accumulated full block bodies across chain history. Block headers alone account for a small fraction of total storage.
 
 ### 2.2 Informal and Unverifiable Pruning
@@ -147,15 +149,15 @@ CSCA addresses the same history storage problem but from a different angle: rath
 
 ### 3.4 Stateless Clients and Verkle Trees
 
-Stateless client research [6] aims to eliminate the requirement for validators to maintain world state locally, instead relying on witnesses provided with each block. Verkle trees [7] make witness sizes practical. This is a complementary direction to CSCA — statelessness addresses the state component of storage growth while CSCA addresses the block body component. Both directions are independently valuable.
+Stateless client research [5] aims to eliminate the requirement for validators to maintain world state locally, instead relying on witnesses provided with each block. Verkle trees [6] make witness sizes practical. This is a complementary direction to CSCA — statelessness addresses the state component of storage growth while CSCA addresses the block body component. Both directions are independently valuable.
 
 ### 3.5 Modular Blockchain Architecture
 
-Modular blockchain architectures (Celestia [8], EigenDA [9]) separate data availability from execution and consensus. CSCA is conceptually aligned with this separation: archive validators serve a data availability function for historical data, while consensus validators focus on execution and consensus. CSCA could integrate with external DA layers for historical body storage rather than depending solely on in-protocol archive nodes.
+Modular blockchain architectures (Celestia [7], EigenDA [8]) separate data availability from execution and consensus. CSCA is conceptually aligned with this separation: archive validators serve a data availability function for historical data, while consensus validators focus on execution and consensus. CSCA could integrate with external DA layers for historical body storage rather than depending solely on in-protocol archive nodes.
 
 ### 3.6 Optimistic Verification and Fraud Proofs
 
-Optimistic rollups [10] demonstrated that systems can proceed optimistically on the assumption of honest behavior, with fraud proofs and slashing as the enforcement mechanism. CSCA applies the same pattern to checkpoint verification: the network accepts a proposed checkpoint optimistically, with a challenge window during which fraud proofs can be submitted and dishonest committees slashed.
+Optimistic rollups [9] demonstrated that systems can proceed optimistically on the assumption of honest behavior, with fraud proofs and slashing as the enforcement mechanism. CSCA applies the same pattern to checkpoint verification: the network accepts a proposed checkpoint optimistically, with a challenge window during which fraud proofs can be submitted and dishonest committees slashed.
 
 ### 3.7 What CSCA Contributes
 
@@ -374,6 +376,8 @@ Check 2 — Block boundary continuity
   header[start_block].parent_hash == header[end_block of N-1].header_hash
   ✓ confirms blocks at window boundary connect correctly
 
+  Block headers are retained permanently by all consensus validators, so this check does not require access to pruned data.
+
 Check 3 — Merkle root integrity
   MerkleRoot(header_hashes[start_block..end_block]) == Checkpoint_N.merkle_root
   ✓ confirms all headers in window are correctly committed
@@ -533,6 +537,13 @@ Phase 4 — Checkpoint Proposal
 ──────────────────────────────
   Signed checkpoint broadcast to network
   Challenge window opens (duration T_challenge)
+
+                                                │
+                                  timeout without quorum
+                                                │
+                                                ▼
+                                  window re-attempted
+                                  new committee selected
 
                                                 │
                                     T_challenge elapses
@@ -1005,16 +1016,16 @@ Mitigation: Economic incentives sized to make exit irrational.
             when threshold approached.
 ```
 
-**Attack: Snapshot manipulation**
+**Attack: Challenge withholding**
 ```
-Threat:    Validator takes incorrect state snapshot at
-           checkpoint boundary to avoid detecting fraud
-Severity:  Low — other validators with correct snapshots
-           can still challenge
-Mitigation: Challenge requires only one honest validator
-            with correct snapshot. Slashing for signing
-            incorrect checkpoints creates incentive for
-            honest snapshot retention.
+Threat:    Honest validator detects fraud but does not
+           submit a challenge before the window closes
+Severity:  Medium — a fraudulent checkpoint could finalize
+Mitigation: Challenge rewards calibrated to exceed
+            verification cost. Multiple independent monitors
+            reduce reliance on any single participant.
+Residual:   Requires at least one active honest monitor per
+            window — an economic assumption, not a cryptographic one.
 ```
 
 ### 13.3 Safety and Liveness Properties
