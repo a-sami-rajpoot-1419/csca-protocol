@@ -412,6 +412,7 @@ Layer 2 — Block in checkpoint
 Combined, these two layers prove that a specific transaction occurred in a specific finalized block covered by a finalized checkpoint — using only the checkpoint and proof paths, without the full block body.
 
 Archive validators store full block bodies and construct these proofs on request. The proof is verifiable by anyone with only the checkpoint.
+A dishonest proof is self-evidencing — Merkle verification against the checkpoint will fail, making fraud detectable without trusting the proof source.
 
 ### 5.8 State Snapshot for Bootstrap Verification
 
@@ -539,8 +540,7 @@ Phase 4 — Checkpoint Proposal
   Challenge window opens (duration T_challenge)
 
                                                 │
-                                  timeout without quorum
-                                                │
+                                                │ timeout without quorum
                                                 ▼
                                   window re-attempted
                                   new committee selected
@@ -970,7 +970,7 @@ CSCA makes the data availability dependency explicit and assigns protocol-level 
 ### 13.1 Threat Model
 
 **Adversary capabilities assumed:**
-- Can corrupt up to a fraction of archive validators below the committee quorum threshold
+- Can corrupt up to k-1 of m archive validators in any given committee
 - Can observe all network traffic
 - Cannot break SHA-256 or the chain's native signature scheme
 - Cannot corrupt the consensus finality mechanism
