@@ -497,7 +497,7 @@ v4  — Reference implementation on a testable chain fork
 
 ## Author
 
-Proposed and authored by **[Your Name]**
+Proposed and authored by **Abdul Sami**
 Initial commit and public record: **May 2026**
 
 This document represents original work. All prior art referenced is acknowledged in the Relationship to Existing Work section above. The specific formalization, architecture, and combined protocol design represented here is the original contribution of the author.
