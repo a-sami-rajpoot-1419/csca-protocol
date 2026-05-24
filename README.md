@@ -480,10 +480,12 @@ That combination — named, specified, and designed as a coherent architecture r
 
 This repository contains the initial proposal, specification, and a working simulation for CSCA.
 
+The simulation is a proof-of-concept for the core mechanism only. It demonstrates that, under the proposal's assumptions, checkpoint construction, checkpoint verification, tamper detection, inclusion proofs after pruning, and a storage comparison all work at toy scale. It does not model challenge windows, stake economics, slashing, committee dynamics, or live-network data availability behavior; those parts remain for later empirical testing and formal analysis.
+
 ```
 v0  — Initial concept and problem framing
 v1  — Cryptographic specification (this document)
-v2  — Python simulation demonstrating checkpoint math (csca-simulation.py)
+v2  — Python simulation demonstrating core checkpoint math at toy scale (csca-simulation.py)
 ```
 
 Planned:
