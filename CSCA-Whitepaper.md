@@ -46,7 +46,7 @@ CSCA does not alter consensus rules, finality mechanisms, execution models, or e
 
 A blockchain validator today faces a storage problem with no upper bound. Every block finalized by the network adds permanently to the storage burden of every consensus participant. There is no protocol-level mechanism that says: you have stored enough history, you are permitted to stop. The result is a slow but compounding pressure on validator economics, hardware requirements, and ultimately decentralization.
 
-The problem is not theoretical. Ethereum archive nodes are already multi-terabyte systems and continue to grow rapidly [1][2]. A validator joining the Ethereum network today faces a synchronization window measured in days even with optimized state sync. As throughput increases and chains mature, both figures worsen.
+The problem is not theoretical. Historical blocks and receipts already occupy more than 400GB of disk space and continue to grow [1]. EIP-4444 formalizes the need to bound that growth by stopping indefinite historical serving [2]. A validator joining the Ethereum network today faces a synchronization window measured in days even with optimized state sync. As throughput increases and chains mature, both figures worsen.
 
 Three partial solutions exist today, none of which fully addresses the problem:
 
@@ -84,20 +84,7 @@ Total validator storage ≈ Σ(block_body_size) + state_size + Σ(header_size)
 
 As throughput scales, `block_body_size` per unit time increases. As adoption grows, `state_size` increases. The formula has no natural bound.
 
-**Observed growth rates (Ethereum mainnet):**
-
-| Component | Approx. Current Size | Approx. Annual Growth |
-|---|---|---|
-| Archive node (full) | ~14 TB | ~1.5 TB/year |
-| Full node (with pruning) | ~1.1 TB | ~300 GB/year |
-| State (world state trie) | ~160 GB | ~40 GB/year |
-| Block headers only | ~60 GB | ~5 GB/year |
-
-*Sources: Etherscan, Ethereum Foundation research, EIP-4444 discussion [1][2]*
-
-These figures are representative observations at the time of writing; exact values vary by client, configuration, and measurement date.
-
-The gap between archive and full node size reflects the dominant cost: full block bodies accumulated across chain history. This is the primary target of CSCA.
+Archive nodes and pruning-enabled full nodes differ by a large and persistent margin. The gap reflects the dominant cost: accumulated full block bodies across chain history. Block headers alone account for a small fraction of total storage.
 
 ### 2.2 Informal and Unverifiable Pruning
 
@@ -154,7 +141,7 @@ CSCA extends this concept significantly. Where weak subjectivity checkpoints are
 
 ### 3.3 EIP-4444 — Execution Layer History Expiry
 
-EIP-4444 [4] proposes that Ethereum execution clients stop serving historical block data older than one year. This reduces the storage burden on execution clients but does not replace historical data availability with a verifiable alternative. The Portal Network [5] is proposed as a complementary system for distributed historical data serving.
+EIP-4444 [2] proposes that Ethereum execution clients stop serving historical block data older than one year. This reduces the storage burden on execution clients but does not replace historical data availability with a verifiable alternative. The Portal Network [4] is proposed as a complementary system for distributed historical data serving.
 
 CSCA addresses the same history storage problem but from a different angle: rather than removing history serving from execution clients without replacement, CSCA provides a formal archival protocol with cryptographic accountability and economic incentives. CSCA could complement EIP-4444 and Portal Network rather than competing with them.
 
@@ -459,7 +446,7 @@ Consensus validators are the standard participants in block production and state
 ```
 1. Download checkpoint chain (tiny — all checkpoints since genesis)
 2. Verify checkpoint chain integrity (all five checks per checkpoint)
-3. Download current state snapshot from archive validator
+3. Download current state snapshot from any source (archive validator, peer, or snapshot service)
 4. Verify snapshot state root matches latest checkpoint state_root
 5. Download and apply block bodies from latest checkpoint forward
 6. Begin normal consensus participation
@@ -579,8 +566,10 @@ The challenge window is the security enforcement layer of CSCA. It operates as a
 ```
 Duration:         T_challenge (protocol parameter — see Section 10.2)
 Eligible period:  from checkpoint proposal to window close
-Post-window:      no challenges accepted (finality applies)
+Post-window:      no new challenges accepted (finality applies)
 ```
+
+A challenge submitted before window close remains valid until it is resolved. Finalization is paused until all timely submitted challenges have been adjudicated.
 
 After the challenge window closes, the checkpoint is final under the same finality guarantees that apply to blocks. Post-finality disputes about historical correctness fall outside the protocol, identical to how post-finality block reorganization is outside the protocol today.
 
@@ -911,6 +900,8 @@ S_committee > maximum_gain_from_fraudulent_checkpoint
 
 Specific parameter values require empirical modeling based on hardware costs, network throughput, and archive set size — this is left as implementation-time parameterization.
 
+These conditions require periodic governance review as hardware costs, network throughput, and archive set size evolve. Static parameter values will not remain optimal indefinitely.
+
 ### 11.3 Validator Economics Improvement
 
 Under the current model, validator economics include an unbounded and increasing hardware cost component. CSCA changes this:
@@ -1074,7 +1065,7 @@ The three concrete improvements CSCA delivers:
 
 **Universal verifiable pruning.** Every consensus validator can safely prune finalized block bodies, gated by a cryptographic checkpoint commitment and committee consensus. Pruning transitions from an informal local optimization to a formal protocol operation.
 
-**Cryptographically verifiable checkpoint synchronization.** New validators verify their snapshot against a cryptographic checkpoint chain rather than trusting the snapshot as a whole. The verification requires only standard hash operations against data that cannot be falsified without detection once a valid bootstrap point is obtained.
+**Cryptographically verifiable checkpoint synchronization.** New validators verify their snapshot against a cryptographic checkpoint chain rather than trusting the snapshot as a whole. The verification requires only standard hash operations against data that cannot be silently falsified: any discrepancy is detectable by any participant holding the relevant headers, provided challenge economics remain correctly calibrated.
 
 **Accountable archival.** Archive validators hold a formal protocol role with defined responsibilities, economic rewards proportional to their costs, and slashing conditions that make failure irrational. Historical data availability becomes a protocol-enforced property rather than an operational volunteer effort.
 
@@ -1088,25 +1079,23 @@ The path forward is a reference implementation on a testable chain fork, empiric
 
 ## References
 
-[1] Ethereum Foundation. "Ethereum Node Statistics." https://etherscan.io/nodetracker
+[1] Kadianakis, G., lightclient, and Stokes, A. "EIP-4444: Bound Historical Data in Execution Clients" discussion thread. Ethereum Magicians. https://ethereum-magicians.org/t/eip-4444-bound-historical-data-in-execution-clients/7450
 
 [2] Ethereum Research. "EIP-4444: Bound Historical Data in Execution Clients." https://eips.ethereum.org/EIPS/eip-4444
 
 [3] Buterin, V. "Weak Subjectivity in Ethereum's Proof of Stake." Ethereum Foundation Blog, 2014.
 
-[4] Ethereum Improvement Proposals. "EIP-4444: Bound Historical Data in Execution Clients." 2021.
+[4] Ethereum Portal Network. "A Decentralized Protocol for Serving Historical Ethereum Data." https://www.ethportal.net/
 
-[5] Ethereum Portal Network. "A Decentralized Protocol for Serving Historical Ethereum Data." https://www.ethportal.net/
+[5] Ethereum Research. "The Stateless Ethereum Roadmap." https://notes.ethereum.org/@vbuterin/verkle_and_hash_based_witnesses
 
-[6] Ethereum Research. "The Stateless Ethereum Roadmap." https://notes.ethereum.org/@vbuterin/verkle_and_hash_based_witnesses
+[6] Buterin, V. et al. "Verkle Trees." https://vitalik.eth.limo/general/2021/06/18/verkle.html
 
-[7] Buterin, V. et al. "Verkle Trees." https://vitalik.eth.limo/general/2021/06/18/verkle.html
+[7] Al-Bassam, M. et al. "Celestia: Scalable Data Availability." https://celestia.org/
 
-[8] Al-Bassam, M. et al. "Celestia: Scalable Data Availability." https://celestia.org/
+[8] EigenLayer. "EigenDA: Scalable Data Availability." https://www.eigenlayer.xyz/
 
-[9] EigenLayer. "EigenDA: Scalable Data Availability." https://www.eigenlayer.xyz/
-
-[10] Ethereum Research. "An Incomplete Guide to Rollups." https://vitalik.eth.limo/general/2021/01/05/rollup.html
+[9] Ethereum Research. "An Incomplete Guide to Rollups." https://vitalik.eth.limo/general/2021/01/05/rollup.html
 
 ---
 
